@@ -1,3 +1,4 @@
+# %%
 import os
 
 from torchvision.transforms import transforms
@@ -6,10 +7,11 @@ from torch.utils.data import Dataset
 import torchvision.datasets
 import torch
 import PIL
-import torchmetrics
-import tqdm
+device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 batch_size = 64
 number_of_labels = 42
+learning_rate = 0.1
+num_epochs = 150
 classes = ('abraham_grampa_simpson',
             'agnes_skinner',
             'apu_nahasapeemapetilon',
@@ -78,47 +80,63 @@ class CustomImageDataset(Dataset):
         if self.target_transform:
             label = self.target_transform(label)
         return image, label
-
+# Loading and normalizing the data.
+# Define transformations for the training and test sets
 transformations = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],std=[0.2023, 0.1994, 0.2010]),
     transforms.Resize((32,32))
 ])
 
 
 full_dataset = torchvision.datasets.ImageFolder("/home/e.sofronov/cnn_simpsons/characters",transformations)
-train_dataset,valid_dataset = torch.utils.data.random_split(full_dataset,[0.8, 0.2])
+train_dataset,valid_dataset = torch.utils.data.random_split(full_dataset,[0.7, 0.3])
+train_dataset, test_set = torch.utils.data.random_split(full_dataset,[0.8, 0.2])
 train_loader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True,num_workers=2)
 print("The number of images in a training set is: ", len(train_loader)*batch_size)
 
-
-test_set = CustomImageDataset('/home/e.sofronov/cnn_simpsons/test_data',transformations)
-
 test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
 print("The number of images in a test set is: ", len(test_loader)*batch_size)
-
+valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+print("The number of images in validation set is: ",len(valid_loader)*batch_size)
 print("The number of batches per epoch is: ", len(train_loader))
 
+
+# %%
 import torch
 import torch.nn as nn
 import torchvision
 import torch.nn.functional as F
 
-# Define a convolution neural network
 class Network(nn.Module):
     def __init__(self):
         super(Network, self).__init__()
         
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=12, kernel_size=5, stride=1, padding=1)
+        self.conv1 = nn.Sequential( 
+                nn.Conv2d(in_channels=3, out_channels=12, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(in_channels=12, out_channels=12, kernel_size=3, stride=1, padding=1)
+        )                      
         self.bn1 = nn.BatchNorm2d(12)
-        self.conv2 = nn.Conv2d(in_channels=12, out_channels=12, kernel_size=5, stride=1, padding=1)
+        self.conv2 = nn.Sequential( 
+                nn.Conv2d(in_channels=12, out_channels=12, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(in_channels=12, out_channels=12, kernel_size=3, stride=1, padding=1)
+        )                      
+        #self.conv2 = nn.Conv2d(in_channels=12, out_channels=12, kernel_size=5, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(12)
         self.pool = nn.MaxPool2d(2,2)
-        self.conv4 = nn.Conv2d(in_channels=12, out_channels=24, kernel_size=5, stride=1, padding=1)
+        self.conv4 = nn.Sequential( 
+                nn.Conv2d(in_channels=12, out_channels=24, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(in_channels=24, out_channels=24, kernel_size=3, stride=1, padding=1)
+        )  
+        #self.conv4 = nn.Conv2d(in_channels=12, out_channels=24, kernel_size=5, stride=1, padding=1)
         self.bn4 = nn.BatchNorm2d(24)
-        self.conv5 = nn.Conv2d(in_channels=24, out_channels=24, kernel_size=5, stride=1, padding=1)
+        self.conv5 = nn.Sequential( 
+                nn.Conv2d(in_channels=24, out_channels=24, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(in_channels=24, out_channels=24, kernel_size=3, stride=1, padding=1)
+        )  
+        #self.conv5 = nn.Conv2d(in_channels=24, out_channels=24, kernel_size=5, stride=1, padding=1)
         self.bn5 = nn.BatchNorm2d(24)
-        self.fc1 = nn.Linear(24*10*10, 42)
+        self.fc1 = nn.Linear(24*16*16, 42)
 
     def forward(self, input):
         output = F.relu(self.bn1(self.conv1(input)))      
@@ -126,23 +144,27 @@ class Network(nn.Module):
         output = self.pool(output)                        
         output = F.relu(self.bn4(self.conv4(output)))     
         output = F.relu(self.bn5(self.conv5(output)))     
-        output = output.view(-1, 24*10*10)
+        output = output.view(-1, 24*16*16)
         output = self.fc1(output)
 
         return output
 
 # Instantiate a neural network model 
-global model 
-model = Network()
+model = Network().to(device)
 
+# %%
 from torch.optim import Adam
  
-
+# Define the loss function with Classification Cross-Entropy loss and an optimizer with Adam optimizer
 loss_fn = nn.CrossEntropyLoss()
-optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0.0001)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, factor=0.1, patience=3, verbose=True, threshold=1e-2
+)
 
+# %%
 from torch.autograd import Variable
-
+import tqdm
 # Function to save the model
 def saveModel():
     path = "./simpsons.pth"
@@ -157,7 +179,6 @@ def testAccuracy():
     
     with torch.no_grad():
         for data in test_loader:
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             images, labels = data
             images, labels = images.to(device), labels.to(device)
             # run the model on the test set to predict labels
@@ -171,26 +192,18 @@ def testAccuracy():
     accuracy = (100 * accuracy / total)
     return(accuracy)
 
-
-# Training function. We simply have to loop over our data iterator and feed the inputs to the network and optimize.
-def train(num_epochs):
+def train():
     
     best_accuracy = 0.0
 
     # Define your execution device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("The model will be running on", device, "device")
     # Convert model parameters and buffers to CPU or Cuda
-    model.to(device)
-
-    for epoch in tqdm.notebook.trange(num_epochs):  # loop over the dataset multiple times
-        running_loss = 0.0
-        running_acc = 0.0
+    for epoch in tqdm.trange(num_epochs):  # loop over the dataset multiple times
+        losses = []
 
         for i, (images, labels) in enumerate(train_loader, 0):
-            
 
-            # get the inputs
             images = Variable(images.to(device))
             labels = Variable(labels.to(device))
 
@@ -200,21 +213,15 @@ def train(num_epochs):
             outputs = model(images)
             # compute the loss based on model output and real labels
             loss = loss_fn(outputs, labels)
+            losses.append(loss.item())
             # backpropagate the loss
             loss.backward()
             # adjust parameters based on the calculated gradients
             optimizer.step()
-
-            # Let's print statistics for every 1,000 images
-            running_loss += loss.item()     # extract the loss value
-            if i % 1000 == 999:    
-                # print every 1000 (twice per epoch) 
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch + 1, i + 1, running_loss / 1000))
-                # zero the loss
-                running_loss = 0.0
-
-        # Compute and print the average accuracy fo this epoch when tested over all 10000 test images
+        mean_loss = sum(losses) / len(losses)
+        scheduler.step(mean_loss)
+        print(f"Loss at epoch {epoch} = {mean_loss}")
+        # Compute and print the average accuracy fo this epoch when tested over all test images
         accuracy = testAccuracy()
         print('For epoch', epoch+1,'the test accuracy over the whole test set is %d %%' % (accuracy))
         
@@ -223,14 +230,15 @@ def train(num_epochs):
             saveModel()
             best_accuracy = accuracy
 
+# %%
+import torchmetrics
 # Function to test what classes performed well
 def testClassess():
     class_correct = list(0. for i in range(number_of_labels))
     class_total = list(0. for i in range(number_of_labels))
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     metric = torchmetrics.Accuracy(task="multiclass", num_classes=42,average=None).to(device)
     with torch.no_grad():
-        for data in test_loader:
+        for data in valid_loader:
             images, labels = data
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
@@ -240,53 +248,15 @@ def testClassess():
     for i in range(number_of_labels):
         print(f'Accuracy of {classes[i]} : {acc[i]}')
 
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-# Function to show the images
-def imageshow(img):
-    img = img / 2 + 0.5     # unnormalize
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    plt.show()
-
-
-# Function to test the model with a batch of images and show the labels predictions
-def testBatch():
-    # get batch of images from the test DataLoader  
-    images, labels = next(iter(test_loader))
-
-    # show all images as one image grid
-    imageshow(torchvision.utils.make_grid(images))
-   
-    # Show the real labels on the screen 
-    print('Real labels: ', ' '.join('%5s' % classes[labels[j]] 
-                               for j in range(batch_size)))
-  
-    # Let's see what if the model identifiers the  labels of those example
-    outputs = model(images)
-    
-    # We got the probability for every 10 labels. The highest (max) probability should be correct label
-    _, predicted = torch.max(outputs, 1)
-    
-    # Let's show the predicted labels on the screen to compare with the real ones
-    print('Predicted: ', ' '.join('%5s' % classes[predicted[j]] 
-                              for j in range(batch_size)))
-
-
+# %%
 if __name__ == "__main__":
     
-    # Let's build our model
-    train(10)
+    train()
     print('Finished Training')
-    # Test which classes performed well
-    #testModelAccuracy()
-    # Let's load the model we just created and test the accuracy per label
-    model = Network()
-    path = "./simpsons.pth"
-    model.load_state_dict(torch.load(path))
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
     testClassess()
-    # Test with batch of images
+    model = Network()
+    path = "simpsons.pth"
+    model.load_state_dict(torch.load(path))
+    #testBatch()
+
+
