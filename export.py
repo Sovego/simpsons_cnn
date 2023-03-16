@@ -11,7 +11,7 @@ device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 batch_size = 64
 number_of_labels = 42
 learning_rate = 0.1
-num_epochs = 150
+num_epochs = 500
 classes = ('abraham_grampa_simpson',
             'agnes_skinner',
             'apu_nahasapeemapetilon',
@@ -92,12 +92,12 @@ transformations = transforms.Compose([
 full_dataset = torchvision.datasets.ImageFolder("/home/e.sofronov/cnn_simpsons/characters",transformations)
 train_dataset,valid_dataset = torch.utils.data.random_split(full_dataset,[0.7, 0.3])
 train_dataset, test_set = torch.utils.data.random_split(full_dataset,[0.8, 0.2])
-train_loader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True,num_workers=2)
+train_loader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True,num_workers=0)
 print("The number of images in a training set is: ", len(train_loader)*batch_size)
 
-test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
+test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 print("The number of images in a test set is: ", len(test_loader)*batch_size)
-valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 print("The number of images in validation set is: ",len(valid_loader)*batch_size)
 print("The number of batches per epoch is: ", len(train_loader))
 
@@ -159,7 +159,7 @@ from torch.optim import Adam
 loss_fn = nn.CrossEntropyLoss()
 optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0.0001)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, factor=0.1, patience=3, verbose=True, threshold=1e-2
+    optimizer,'min', factor=0.1, patience=4, verbose=True, threshold=1e-2
 )
 
 # %%
