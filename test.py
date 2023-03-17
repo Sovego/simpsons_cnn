@@ -205,7 +205,7 @@ def train(num_epochs):
             # adjust parameters based on the calculated gradients
             optimizer.step()
 
-            # Let's print statistics for every 1,000 images
+            
             running_loss += loss.item()     # extract the loss value
             if i % 1000 == 999:    
                 # print every 1000 (twice per epoch) 
