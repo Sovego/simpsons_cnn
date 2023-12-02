@@ -62,9 +62,7 @@ classes = ('abraham_grampa_simpson',
            'snake_jailbird',
            'troy_mcclure',
            'waylon_smithers')
-class_encoder = {}
-for i in range(len(classes)):
-    class_encoder[classes[i]] = i
+class_encoder = {classes[i]: i for i in range(len(classes))}
 
 
 class CustomImageDataset(Dataset):
@@ -328,7 +326,7 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(path))
     test_classes()
     test_batch()
-    epochs = [i for i in range(num_epochs)]
+    epochs = list(range(num_epochs))
     fig, ax = plt.subplots()
     ax.plot(recall_metric, epochs, label="Recall")
     ax.plot(loss_metric, epochs, label="Loss")
